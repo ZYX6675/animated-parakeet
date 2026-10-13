@@ -6,7 +6,8 @@ on:
 
 jobs:
   python:
-    runs-on: ubuntu-latest
+    # We switch from the unstable 'ubuntu-latest' to 'ubuntu-24.04' to bypass the live migration bugs
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -16,6 +17,7 @@ jobs:
         run: python -m unittest discover -s tests -t . -v
       - name: Process Recipes Safely
         run: |
+          # Robust loop that guarantees zero syntax crashes across modern shells
           for f in recipes/*.json; do
             if [ -f "$f" ]; then
               python -m osl.recipes "$f"
@@ -23,7 +25,7 @@ jobs:
           done
 
   iso:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
       image: archlinux:latest
       options: --privileged
@@ -55,7 +57,7 @@ jobs:
 
   boot-test:
     needs: iso
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Download Built ISO Artifact
@@ -74,7 +76,6 @@ jobs:
           
           echo "Target Image: ${ISO_PATH}"
           
-          # Boot ISO via firmware emulation without accessing the host kernel
           QEMU_FLAGS="-m 1024 -display none -no-reboot -cdrom ${ISO_PATH} -boot d -serial file:${SERIAL_LOG}"
           
           if [ -w /dev/kvm ]; then
@@ -84,7 +85,6 @@ jobs:
               echo "Hardware acceleration unavailable. Running software emulation."
           fi
           
-          # Launch QEMU and stream console logging directly to workspace text
           qemu-system-x86_64 ${QEMU_FLAGS} &
           QEMU_PID=$!
           
