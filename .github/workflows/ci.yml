@@ -27,7 +27,6 @@ jobs:
     steps:
       - name: Install System Dependencies
         run: |
-          # Synchronize packages and install tools required by mkarchiso for UEFI/BIOS imaging
           pacman -Syu --noconfirm --needed git grub efibootmgr mtools dosfstools syslinux squashfs-tools arch-install-scripts libisoburn
       - uses: actions/checkout@v4
       - name: Run ISO Build Script
@@ -61,10 +60,11 @@ jobs:
         with:
           name: iso-image
           path: out
-      - name: Install Virtualization Tools
+      - name: Install Virtualization Tools and Disk Utilities
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 libarchive-tools
+          # Added mtools and dosfstools to provide mcopy and fat formatting capabilities locally
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 libarchive-tools mtools dosfstools
       - name: Configure KVM Virtualization Acceleration
         run: sudo chmod 666 /dev/kvm || true
       - name: Execute QEMU Boot Verification
