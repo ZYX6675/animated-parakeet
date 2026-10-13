@@ -1,0 +1,16 @@
+{
+  "id": "example-app",
+  "name": "Example App (format illustration only, not a real compatibility claim)",
+  "runtime": "wine",
+  "status": "untested",
+  "match": { "filename": "example-setup.exe" },
+  "wine": {
+    "arch": "win64",
+    "dll_overrides": {},
+    "winetricks": [],
+    "env": {}
+  },
+  "evidence": [],
+  "notes": "Copy this file per app. Set status to works or partial only with evidence from a recorded test run.",
+  "updated": "2026-10-13"
+}

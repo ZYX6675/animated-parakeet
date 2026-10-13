@@ -1,0 +1,2 @@
+#!/bin/sh
+PYTHONPATH=/usr/local/lib/hybrid-os exec python3 -m osl.cli "$@"

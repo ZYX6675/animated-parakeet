@@ -1,0 +1,17 @@
+[project]
+name = "osl"
+version = "0.0.1"
+description = "Unified launcher core for a Linux base with Windows and macOS compatibility layers"
+requires-python = ">=3.10"
+
+[project.scripts]
+osl-run = "osl.cli:main"
+osl-recipe = "osl.recipes:main"
+parity = "parity.__main__:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["osl", "parity"]
