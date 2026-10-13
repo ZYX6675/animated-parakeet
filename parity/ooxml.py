@@ -1,7 +1,7 @@
 """Structural summaries and comparison for DOCX, XLSX, and PPTX files (standard library only).
 
 Untrusted input: members are size-limited and the archive is integrity-checked before parsing.
-XML parser is strictly hardened against entity definitions and external entities.
+XML content is parsed without any DTD or external-entity resolution.
 """
 from __future__ import annotations
 
@@ -39,31 +39,19 @@ def _num(name: str) -> int:
 
 
 def _xml(z: zipfile.ZipFile, name: str):
-    """Parses XML string while safely disabling all entity declarations via Expat handlers."""
+    """Parse XML while rejecting DTD/entity payloads and unsafe external references."""
     info = z.getinfo(name)
     if info.file_size > MAX_PART_BYTES:
         raise Unreadable(f"{name} too large to analyze")
+
+    data = z.read(name)
+    lowered = data.lower()
+    if b"<!doctype" in lowered or b"<!entity" in lowered:
+        raise Unreadable(f"{name}: entity declarations are not allowed")
+
     try:
-        # Create a basic parser instance
-        parser = ET.XMLParser()
-        expat_parser = parser.parser
-
-        # Defensive Block: Define callback overrides that reject entity patterns instantly
-        def forbid_entity(entity_name, is_parameter_entity, value, base, system_id, public_id, notation_name):
-            raise ET.ParseError("Security Violation: Internal/External Entity declaration detected.")
-
-        def forbid_external(context, base, system_id, public_id):
-            raise ET.ParseError("Security Violation: External Reference Entity detected.")
-
-        # Bind defenses straight to the expat compiler engine layers
-        expat_parser.EntityDeclHandler = forbid_entity
-        expat_parser.ExternalEntityRefHandler = forbid_external
-
-        # Feed text chunks securely into our defensive parser
-        parser.feed(z.read(name))
-        return parser.close()
-
-    except (ET.ParseError, ValueError) as exc:
+        return ET.fromstring(data)
+    except (ET.ParseError, ValueError, TypeError) as exc:
         raise Unreadable(f"{name}: invalid XML ({exc})") from exc
 
 
