@@ -13,7 +13,6 @@ jobs:
         run: python -m unittest discover -s tests -t . -v
       - name: Process Recipes Safely
         run: |
-          # Use a shell loop to dynamically pass every JSON file safely to the module
           for f in recipes/*.json; do
             if [ -f "$f" ]; then
               python -m osl.recipes "$f"
@@ -27,17 +26,17 @@ jobs:
       options: --privileged
     steps:
       - name: Install System Dependencies
-        run: pacman -Syu --noconfirm git
+        run: |
+          # Synchronize packages and install tools required by mkarchiso for UEFI/BIOS imaging
+          pacman -Syu --noconfirm --needed git grub efibootmgr mtools dosfstools syslinux squashfs-tools arch-install-scripts libisoburn
       - uses: actions/checkout@v4
       - name: Run ISO Build Script
         run: |
-          # Ensure execution permission is granted to the shell script
           chmod +x iso/build.sh
           iso/build.sh
       - name: Validate Output Size
         run: |
           chmod +x scripts/size-check.sh
-          # Only runs check if files were generated to prevent immediate workflow crashes
           if compgen -G "out/*.iso" > /dev/null; then
             scripts/size-check.sh out/*.iso
           else
