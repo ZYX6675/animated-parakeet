@@ -1,0 +1,2 @@
+# Sample test payload for osl-run execution
+echo "Hello from inside the Hybrid OS isolated container!"
