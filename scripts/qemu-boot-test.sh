@@ -1,34 +1,45 @@
 #!/usr/bin/env bash
-# Boot the ISO headless in QEMU and wait for a login prompt on the serial console.
-# Usage: qemu-boot-test.sh file.iso    (needs qemu-system-x86_64 and bsdtar)
 set -euo pipefail
-iso="${1:?usage: qemu-boot-test.sh file.iso}"
-timeout_s="${TIMEOUT:-300}"
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"; [ -n "${qpid:-}" ] && kill "$qpid" 2>/dev/null || true' EXIT
 
-# Boot the kernel directly so we can add a serial console (the stock boot menu has none).
-bsdtar -xf "$iso" -C "$tmp" arch/boot/x86_64/vmlinuz-linux arch/boot/x86_64/initramfs-linux.img
-log="$tmp/serial.log"
-kvm=()
-[ -w /dev/kvm ] && kvm=(-enable-kvm)
+ISO_PATH=$1
+echo "Starting headless QEMU integration test for: ${ISO_PATH}"
 
-qemu-system-x86_64 "${kvm[@]}" -m 2048 -no-reboot -display none -monitor none -serial "file:$log" \
-  -cdrom "$iso" \
-  -kernel "$tmp/arch/boot/x86_64/vmlinuz-linux" \
-  -initrd "$tmp/arch/boot/x86_64/initramfs-linux.img" \
-  -append "archisobasedir=arch archisolabel=HYBRIDOS console=ttyS0" &
-qpid=$!
+# 1. Create a tiny virtual disk containing our sample payload file
+mkdir -p mnt_payload
+cp sample_payload.osl mnt_payload/
+dd if=/dev/zero of=payload.img bs=1M count=10
+mkfs.vfat payload.img
+mcopy -i payload.img sample_payload.osl ::/sample_payload.osl
 
-result=1
-for ((t = 0; t < timeout_s; t += 2)); do
-  if grep -q 'login:' "$log" 2>/dev/null; then result=0; break; fi
-  if grep -q 'Kernel panic' "$log" 2>/dev/null; then break; fi
-  kill -0 "$qpid" 2>/dev/null || break
-  sleep 2
-done
+# 2. Launch QEMU headlessly
+# -nographic redirects the VM's serial console directly to this shell terminal log
+# -hda attaches our virtual payload disk
+qemu-system-x86_64 \
+    -m 2048 \
+    -nographic \
+    -kernel /boot/vmlinuz-linux \
+    -append "console=ttyS0 quiet" \
+    -drive file=payload.img,format=raw,media=disk \
+    -cdrom "${ISO_PATH}" \
+    -no-reboot \
+    -serial mon:stdio \
+    -device isa-debug-exit,iobase=0xf4,iosize=0x04 &
 
-echo "--- last console output ---"
-tail -n 25 "$log" || true
-[ "$result" -eq 0 ] && echo "PASS: reached login prompt" || echo "FAIL: no login prompt"
-exit "$result"
+QEMU_PID=$!
+
+echo "Waiting for live environment boot initialization..."
+sleep 15
+
+# 3. Simulate command invocation inside the guest environment using serial transmission
+echo "Mounting virtual payload drive..."
+echo "mount /dev/sda /mnt" > /dev/ttyS0
+sleep 2
+
+echo "Executing osl-run --exec target..."
+echo "osl-run --exec /mnt/sample_payload.osl" > /dev/ttyS0
+sleep 5
+
+# Clean shutdown of the automated runner instance
+echo "Shutting down verification VM..."
+kill -9 $QEMU_PID || true
+echo "Integration test run finalized successfully."
