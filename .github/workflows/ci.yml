@@ -1,34 +1,74 @@
-name: Hybrid OS CI
-
-on: 
-  - push
-  - pull_request
-  - workflow_dispatch # smth imp
+name: ci
+on: [push, pull_request, workflow_dispatch]
 
 jobs:
-  test-and-build:
+  python:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run Unit Tests
+        run: python -m unittest discover -s tests -t . -v
+      - name: Process Recipes Safely
+        run: |
+          # Use a shell loop to dynamically pass every JSON file safely to the module
+          for f in recipes/*.json; do
+            if [ -f "$f" ]; then
+              python -m osl.recipes "$f"
+            fi
+          done
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
+  iso:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+      options: --privileged
+    steps:
+      - name: Install System Dependencies
+        run: pacman -Syu --noconfirm git
+      - uses: actions/checkout@v4
+      - name: Run ISO Build Script
+        run: |
+          # Ensure execution permission is granted to the shell script
+          chmod +x iso/build.sh
+          iso/build.sh
+      - name: Validate Output Size
+        run: |
+          chmod +x scripts/size-check.sh
+          # Only runs check if files were generated to prevent immediate workflow crashes
+          if compgen -G "out/*.iso" > /dev/null; then
+            scripts/size-check.sh out/*.iso
+          else
+            echo "Error: No ISO files found in the output directory!"
+            exit 1
+          fi
+      - name: Upload Finished ISO Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iso-image
+          path: |
+            out/*.iso
+          if-no-files-found: error
 
-    - name: Run Unit Tests
-      run: |
-        python3 -m unittest discover -s tests -t . -v
-
-    - name: Run Launcher Dry Run
-      run: |
-        echo "test content" > dummy_test_file
-        python3 -m osl.cli dummy_test_file
-
-    - name: Build ISO Image
-      run: |
-        sudo touch /.dockerenv
-        chmod +x iso/build.sh
-        sudo ./iso/build.sh
+  boot-test:
+    needs: iso
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download Built ISO Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: iso-image
+          path: out
+      - name: Install Virtualization Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 libarchive-tools
+      - name: Configure KVM Virtualization Acceleration
+        run: sudo chmod 666 /dev/kvm || true
+      - name: Execute QEMU Boot Verification
+        run: |
+          chmod +x scripts/qemu-boot-test.sh
+          scripts/qemu-boot-test.sh out/*.iso
