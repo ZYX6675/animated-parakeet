@@ -55,7 +55,7 @@ jobs:
             out/*.iso
           if-no-files-found: error
 
-  boot-test:
+   boot-test:
     needs: iso
     runs-on: ubuntu-24.04
     steps:
@@ -65,58 +65,30 @@ jobs:
         with:
           name: iso-image
           path: out
-      - name: Install Virtualization Tools
+      - name: Install virtualization tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends qemu-system-x86
-      - name: Execute Headless QEMU Boot Verification
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 libarchive-tools
+      - name: Enable KVM when available
         run: |
-          ISO_PATH=$(ls out/*.iso | head -n 1)
-          SERIAL_LOG="qemu-serial.log"
-          
-          echo "Target Image: ${ISO_PATH}"
-          
-          QEMU_FLAGS="-m 1024 -display none -no-reboot -cdrom ${ISO_PATH} -boot d -serial file:${SERIAL_LOG}"
-          
-          if [ -w /dev/kvm ]; then
-              echo "Hardware acceleration detected. Enabling KVM mode."
-              QEMU_FLAGS="${QEMU_FLAGS} -enable-kvm"
+          if [ -e /dev/kvm ]; then
+            echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+            sudo udevadm control --reload-rules
+            sudo udevadm trigger --name-match=kvm
           else
-              echo "Hardware acceleration unavailable. Running software emulation."
+            echo "no /dev/kvm on this runner: boot will use slow software emulation"
           fi
-          
-          qemu-system-x86_64 ${QEMU_FLAGS} &
-          QEMU_PID=$!
-          
-          TIMEOUT=120
-          SECS=0
-          INTERVAL=2
-          BOOT_INDICATORS=("Welcome to Arch Linux" "archiso" "login:" "root@")
-          
-          echo "Waiting for live environment boot signatures..."
-          while [ ${SECS} -lt ${TIMEOUT} ]; do
-              if [ -f "${SERIAL_LOG}" ]; then
-                  for indicator in "${BOOT_INDICATORS[@]}"; do
-                      if grep -qi "${indicator}" "${SERIAL_LOG}" 2>/dev/null; then
-                          echo ""
-                          echo "=================================================="
-                          echo "SUCCESS: Valid boot indicator detected! [${indicator}]"
-                          echo "=================================================="
-                          cat "${SERIAL_LOG}"
-                          kill "${QEMU_PID}" 2>/dev/null || true
-                          exit 0
-                      fi
-                  done
-              fi
-              sleep ${INTERVAL}
-              SECS=$((SECS + INTERVAL))
-              printf "."
-          done
-          
-          echo ""
-          echo "=================================================="
-          echo "ERROR: Timeout reached without boot signs."
-          echo "=================================================="
-          kill "${QEMU_PID}" 2>/dev/null || true
-          [ -f "${SERIAL_LOG}" ] && cat "${SERIAL_LOG}"
-          exit 1
+      - name: Boot the ISO in QEMU and wait for a login prompt
+        env:
+          SERIAL_LOG: ${{ github.workspace }}/qemu-serial.log
+          TIMEOUT: "600"
+        run: |
+          chmod +x scripts/qemu-boot-test.sh
+          scripts/qemu-boot-test.sh out/*.iso
+      - name: Upload console log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-serial-log
+          path: qemu-serial.log
+          if-no-files-found: ignore
